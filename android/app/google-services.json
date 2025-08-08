@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1010007138380",
+    "project_id": "app-smarti",
+    "storage_bucket": "app-smarti.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1010007138380:android:6b168df6e1b62fa56b94e9",
+        "android_client_info": {
+          "package_name": "com.example.app_smarti"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBr7JvrmePhH4Qp_1Ob1FpoK6_os7mLtKE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1010007138380:android:d67c8f3f9745eb3d6b94e9",
+        "android_client_info": {
+          "package_name": "com.smarti_test.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBr7JvrmePhH4Qp_1Ob1FpoK6_os7mLtKE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
