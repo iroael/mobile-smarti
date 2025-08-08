@@ -1,81 +1,45 @@
 // lib/features/auth/presentation/auth_wrapper.dart
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../data/auth_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../data/auth_providers.dart';
+import '../domain/models/auth_state.dart';
 import 'login_screen.dart';
 import '../../home/presentation/home_screen.dart';
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends ConsumerWidget {
   const AuthWrapper({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: AuthService().authStateChanges,
-      builder: (context, snapshot) {
-        // Show loading while checking auth state
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Color(0xFF4CAF50),
-            body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Memuat...',
-                    style: TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ],
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authNotifierProvider);
+
+    // Show loading screen while checking authentication
+    if (authState.status == AuthStatus.initial || authState.isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
               ),
-            ),
-          );
-        }
+              SizedBox(height: 16),
+              Text(
+                'Memuat...',
+                style: TextStyle(fontSize: 16, color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
-        // If user is signed in, show home screen
-        if (snapshot.hasData && snapshot.data != null) {
-          return const HomeScreen();
-        }
+    // If authenticated, show home screen
+    if (authState.isAuthenticated) {
+      return const HomeScreen();
+    }
 
-        // If user is not signed in, show login screen
-        return const LoginScreen();
-      },
-    );
-  }
-}
-
-// Alternative wrapper for specific use cases
-class ConditionalAuthWrapper extends StatelessWidget {
-  final Widget authenticatedWidget;
-  final Widget unauthenticatedWidget;
-  final Widget? loadingWidget;
-
-  const ConditionalAuthWrapper({
-    super.key,
-    required this.authenticatedWidget,
-    required this.unauthenticatedWidget,
-    this.loadingWidget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: AuthService().authStateChanges,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return loadingWidget ??
-              const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-
-        if (snapshot.hasData && snapshot.data != null) {
-          return authenticatedWidget;
-        }
-
-        return unauthenticatedWidget;
-      },
-    );
+    // If not authenticated, show login screen
+    return const LoginScreen();
   }
 }

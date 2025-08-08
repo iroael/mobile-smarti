@@ -1,107 +1,290 @@
 // lib/features/auth/data/auth_providers.dart
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'auth_service.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import '../domain/models/user_model.dart';
+import '../domain/models/auth_state.dart';
 
-// AuthService provider
-final authServiceProvider = Provider<AuthService>((ref) {
-  return AuthService();
+// Auth Repository Provider
+final authRepositoryProvider = Provider<AuthRepository>((ref) {
+  return AuthRepository();
 });
 
-// Current user provider
-final currentUserProvider = StreamProvider<User?>((ref) {
-  final authService = ref.watch(authServiceProvider);
-  return authService.authStateChanges;
-});
-
-// Auth state provider (for easier access)
-final authStateProvider = Provider<AsyncValue<User?>>((ref) {
-  return ref.watch(currentUserProvider);
-});
-
-// Auth notifier for handling auth operations
+// Auth Notifier Provider
 final authNotifierProvider = StateNotifierProvider<AuthNotifier, AuthState>((
   ref,
 ) {
-  final authService = ref.watch(authServiceProvider);
-  return AuthNotifier(authService);
+  final repository = ref.watch(authRepositoryProvider);
+  return AuthNotifier(repository);
 });
 
-// Auth state classes
-class AuthState {
-  final User? user;
-  final bool isLoading;
-  final String? error;
+// Auth Stream Provider for listening to auth changes
+final authStreamProvider = StreamProvider<User?>((ref) {
+  return FirebaseAuth.instance.authStateChanges();
+});
 
-  const AuthState({this.user, this.isLoading = false, this.error});
+// Auth Repository Class
+class AuthRepository {
+  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
-  AuthState copyWith({User? user, bool? isLoading, String? error}) {
-    return AuthState(
-      user: user ?? this.user,
-      isLoading: isLoading ?? this.isLoading,
-      error: error,
+  // Get current user
+  User? get currentUser => _firebaseAuth.currentUser;
+
+  // Stream of auth changes
+  Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
+
+  // Sign in with username/password (using email as username for Firebase)
+  Future<UserCredential> signInWithUsernamePassword(
+    String username,
+    String password,
+  ) async {
+    try {
+      // For demo purposes, we'll use predefined credentials
+      // In production, you might want to map username to email or use custom auth
+
+      // Demo credentials
+      final Map<String, String> demoUsers = {
+        'admin': 'admin@smarti.com',
+        'petugas1': 'petugas1@smarti.com',
+        'petugas2': 'petugas2@smarti.com',
+        'operator': 'operator@smarti.com',
+      };
+
+      final email = demoUsers[username.toLowerCase()];
+      if (email == null) {
+        throw FirebaseAuthException(
+          code: 'user-not-found',
+          message: 'Username tidak ditemukan',
+        );
+      }
+
+      // Try to sign in with email and password
+      final credential = await _firebaseAuth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      return credential;
+    } on FirebaseAuthException catch (e) {
+      // Handle specific Firebase Auth errors
+      switch (e.code) {
+        case 'user-not-found':
+          throw Exception('Username tidak ditemukan');
+        case 'wrong-password':
+          throw Exception('Password salah');
+        case 'invalid-email':
+          throw Exception('Format email tidak valid');
+        case 'user-disabled':
+          throw Exception('Akun telah dinonaktifkan');
+        case 'too-many-requests':
+          throw Exception('Terlalu banyak percobaan login. Coba lagi nanti');
+        case 'network-request-failed':
+          throw Exception('Tidak ada koneksi internet');
+        default:
+          throw Exception('Login gagal: ${e.message}');
+      }
+    } catch (e) {
+      throw Exception('Terjadi kesalahan: $e');
+    }
+  }
+
+  // Sign in with Google
+  Future<UserCredential> signInWithGoogle() async {
+    try {
+      // Trigger the authentication flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+
+      if (googleUser == null) {
+        throw Exception('Login Google dibatalkan');
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the Google credential
+      return await _firebaseAuth.signInWithCredential(credential);
+    } on FirebaseAuthException catch (e) {
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          throw Exception('Akun sudah terdaftar dengan metode login berbeda');
+        case 'invalid-credential':
+          throw Exception('Kredensial tidak valid');
+        case 'operation-not-allowed':
+          throw Exception('Google Sign-In belum diaktifkan');
+        case 'user-disabled':
+          throw Exception('Akun telah dinonaktifkan');
+        case 'network-request-failed':
+          throw Exception('Tidak ada koneksi internet');
+        default:
+          throw Exception('Login Google gagal: ${e.message}');
+      }
+    } catch (e) {
+      throw Exception('Terjadi kesalahan: $e');
+    }
+  }
+
+  // Sign out
+  Future<void> signOut() async {
+    try {
+      await Future.wait([_firebaseAuth.signOut(), _googleSignIn.signOut()]);
+    } catch (e) {
+      throw Exception('Logout gagal: $e');
+    }
+  }
+
+  // Convert Firebase User to UserModel
+  UserModel? _userFromFirebase(User? firebaseUser) {
+    if (firebaseUser == null) return null;
+
+    // Extract username from email (before @)
+    String? username;
+    if (firebaseUser.email != null) {
+      username = firebaseUser.email!.split('@').first;
+    }
+
+    return UserModel(
+      id: firebaseUser.uid,
+      username: username ?? 'user',
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName ?? username ?? 'User',
+      photoURL: firebaseUser.photoURL,
+      createdAt: firebaseUser.metadata.creationTime,
+      lastLoginAt: firebaseUser.metadata.lastSignInTime,
     );
+  }
+
+  // Get user model from current user
+  UserModel? getCurrentUserModel() {
+    return _userFromFirebase(_firebaseAuth.currentUser);
   }
 }
 
-// Auth notifier class
+// Auth Notifier Class
 class AuthNotifier extends StateNotifier<AuthState> {
-  final AuthService _authService;
+  final AuthRepository _repository;
 
-  AuthNotifier(this._authService) : super(const AuthState()) {
-    // Listen to auth state changes
-    _authService.authStateChanges.listen((user) {
-      state = state.copyWith(user: user, isLoading: false);
+  AuthNotifier(this._repository) : super(const AuthState()) {
+    _init();
+  }
+
+  // Initialize and listen to auth changes
+  void _init() {
+    _repository.authStateChanges.listen((user) {
+      if (user != null) {
+        final userModel = _repository.getCurrentUserModel();
+        state = state.copyWith(
+          status: AuthStatus.authenticated,
+          user: userModel,
+          error: null,
+          isLoading: false,
+        );
+      } else {
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          user: null,
+          error: null,
+          isLoading: false,
+        );
+      }
     });
   }
 
-  // Google Sign In
-  Future<void> signInWithGoogle() async {
-    state = state.copyWith(isLoading: true, error: null);
-
-    try {
-      final result = await _authService.signInWithGoogle();
-      if (result != null) {
-        state = state.copyWith(user: result.user, isLoading: false);
-      } else {
-        state = state.copyWith(
-          isLoading: false,
-          error: 'Sign in was cancelled',
-        );
-      }
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
-      rethrow;
-    }
+  // Set loading state
+  void setLoading(bool isLoading) {
+    state = state.copyWith(isLoading: isLoading, error: null);
   }
 
-  // Email/Password Sign In
-  Future<void> signInWithEmailPassword(String email, String password) async {
-    state = state.copyWith(isLoading: true, error: null);
-
+  // Sign in with username and password
+  Future<void> signInWithUsernamePassword(
+    String username,
+    String password,
+  ) async {
     try {
-      final result = await _authService.signInWithEmailPassword(
-        email,
+      setLoading(true);
+
+      final credential = await _repository.signInWithUsernamePassword(
+        username,
         password,
       );
-      if (result != null) {
-        state = state.copyWith(user: result.user, isLoading: false);
-      }
+      final userModel = _repository._userFromFirebase(credential.user);
+
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: userModel,
+        error: null,
+        isLoading: false,
+      );
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        user: null,
+        error: e.toString(),
+        isLoading: false,
+      );
       rethrow;
     }
   }
 
-  // Sign Out
-  Future<void> signOut() async {
-    state = state.copyWith(isLoading: true, error: null);
-
+  // Sign in with Google
+  Future<void> signInWithGoogle() async {
     try {
-      await _authService.signOut();
-      state = state.copyWith(user: null, isLoading: false);
+      setLoading(true);
+
+      final credential = await _repository.signInWithGoogle();
+      final userModel = _repository._userFromFirebase(credential.user);
+
+      state = state.copyWith(
+        status: AuthStatus.authenticated,
+        user: userModel,
+        error: null,
+        isLoading: false,
+      );
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        user: null,
+        error: e.toString(),
+        isLoading: false,
+      );
+      rethrow;
+    }
+  }
+
+  // Sign out
+  Future<void> signOut() async {
+    try {
+      setLoading(true);
+
+      await _repository.signOut();
+
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        user: null,
+        error: null,
+        isLoading: false,
+      );
+    } catch (e) {
+      state = state.copyWith(error: e.toString(), isLoading: false);
+      rethrow;
+    }
+  }
+
+  // Reset password
+  Future<void> resetPassword(String email) async {
+    try {
+      setLoading(true);
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      setLoading(false);
+    } catch (e) {
+      state = state.copyWith(error: e.toString(), isLoading: false);
       rethrow;
     }
   }
@@ -111,3 +294,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(error: null);
   }
 }
+
+// Helper providers for easy access
+final currentUserProvider = Provider<UserModel?>((ref) {
+  return ref.watch(authNotifierProvider).user;
+});
+
+final isAuthenticatedProvider = Provider<bool>((ref) {
+  return ref.watch(authNotifierProvider).isAuthenticated;
+});
+
+final isLoadingProvider = Provider<bool>((ref) {
+  return ref.watch(authNotifierProvider).isLoading;
+});
